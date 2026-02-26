@@ -22,10 +22,12 @@ public final class ToolExecutor: @unchecked Sendable {
     private let device: HFPDevice
     private let audioRouter: AudioRouter
     private let logger = PhoneBTLogger(category: .agent)
+    public var ttsPlayer: TTSPlayer?
 
-    public init(device: HFPDevice, audioRouter: AudioRouter) {
+    public init(device: HFPDevice, audioRouter: AudioRouter, ttsPlayer: TTSPlayer? = nil) {
         self.device = device
         self.audioRouter = audioRouter
+        self.ttsPlayer = ttsPlayer
     }
 
     /// Execute a tool call and return JSON result string
@@ -46,6 +48,8 @@ public final class ToolExecutor: @unchecked Sendable {
                 return executeGetCallStatus()
             case "get_phone_status":
                 return executeGetPhoneStatus()
+            case "say_to_caller":
+                return executeSayToCaller(input: input)
             default:
                 return errorJSON("Unknown tool: \(toolName)")
             }
@@ -138,6 +142,31 @@ public final class ToolExecutor: @unchecked Sendable {
             "operator": phone.operatorName ?? "unknown",
             "roaming": phone.roaming,
         ] as [String: Any])
+    }
+
+    private func executeSayToCaller(input: [String: Any]) -> String {
+        guard let text = input["text"] as? String else {
+            return errorJSON("Missing required parameter: text")
+        }
+
+        guard let ttsPlayer = ttsPlayer else {
+            return errorJSON("TTS not available — ELEVENLABS_API_KEY not set or audio pipeline not started")
+        }
+
+        // Fire TTS in a detached task so the tool returns immediately
+        Task.detached { [logger] in
+            do {
+                try await ttsPlayer.speak(text)
+                logger.info("TTS playback completed for: \(text.prefix(50))")
+            } catch {
+                logger.error("TTS playback failed: \(error)")
+            }
+        }
+
+        return successJSON([
+            "status": "speaking",
+            "text": text,
+        ])
     }
 
     // MARK: - Helpers

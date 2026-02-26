@@ -25,6 +25,7 @@ public enum PhoneTools {
         sendDTMFTool,
         getCallStatusTool,
         getPhoneStatusTool,
+        sayToCallerTool,
     ]
 
     public static let dialNumberTool: MessageParameter.Tool = .function(
@@ -90,6 +91,21 @@ public enum PhoneTools {
         inputSchema: JSONSchema(
             type: .object,
             properties: [:]
+        )
+    )
+
+    public static let sayToCallerTool: MessageParameter.Tool = .function(
+        name: "say_to_caller",
+        description: "Speak text to the caller during an active phone call using text-to-speech. The caller will hear your spoken words through the phone.",
+        inputSchema: JSONSchema(
+            type: .object,
+            properties: [
+                "text": JSONSchema.Property(
+                    type: .string,
+                    description: "The text to speak to the caller"
+                ),
+            ],
+            required: ["text"]
         )
     )
 }

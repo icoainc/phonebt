@@ -30,11 +30,16 @@ public final class ClaudeAgent: @unchecked Sendable {
     private let systemPrompt = """
         You are a phone call assistant. You can make and receive phone calls through \
         a Bluetooth-connected phone. You have tools to dial numbers, accept/end calls, \
-        send DTMF tones, and check call/phone status.
+        send DTMF tones, check call/phone status, and speak to callers.
 
         When a user asks you to call someone, use the dial_number tool. \
         When an incoming call arrives, inform the user and ask if they want to answer. \
         Provide helpful status updates about ongoing calls.
+
+        During active calls, you will receive [CALLER SPEECH] messages containing \
+        transcriptions of what the caller is saying. Respond naturally to the caller \
+        using the say_to_caller tool. Have a real-time conversation — listen to what \
+        they say and respond appropriately. Keep your spoken responses concise and natural.
 
         Be concise in your responses. Report tool results clearly.
         """
@@ -84,6 +89,16 @@ public final class ClaudeAgent: @unchecked Sendable {
                     description = "Audio connected — you can now hear and speak"
                 case .scoDisconnected:
                     description = "Audio disconnected"
+                case .callerSpeech(let text):
+                    description = nil
+                    // Handle caller speech as a special injection
+                    do {
+                        let response = try await self.injectEvent("[CALLER SPEECH] \"\(text)\"")
+                        onResponse(response)
+                    } catch {
+                        self.logger.error("Failed to process caller speech: \(error)")
+                    }
+                    continue
                 default:
                     description = nil
                 }

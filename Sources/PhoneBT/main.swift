@@ -63,17 +63,24 @@ var eventListenerTask: Task<Void, Never>?
 var discoveredDevices: [DiscoveredDevice] = []
 var isRunning = true
 
+// Audio pipeline globals
+var audioSessionManager: AudioSessionManager?
+var audioCapture: AudioCapture?
+var ttsPlayer: TTSPlayer?
+
 // MARK: - Signal Handling
 
 signal(SIGINT) { _ in
     print("\nShutting down...")
     isRunning = false
+    stopAudioPipeline()
     hfpDevice?.disconnect()
     audioRouter.restorePreviousRouting()
     exit(0)
 }
 
 signal(SIGTERM) { _ in
+    stopAudioPipeline()
     hfpDevice?.disconnect()
     audioRouter.restorePreviousRouting()
     exit(0)
@@ -149,6 +156,60 @@ func handleConnect(indexStr: String) async {
     }
 }
 
+// MARK: - Audio Pipeline
+
+func startAudioPipeline() {
+    guard let device = hfpDevice else { return }
+
+    let deviceManager = AudioDeviceManager()
+    let btDevices = deviceManager.getBluetoothDevices()
+    guard let scoDevice = btDevices.first(where: { $0.hasInput && $0.hasOutput }) else {
+        logger.error("No Bluetooth SCO device found for audio pipeline")
+        return
+    }
+
+    let session = AudioSessionManager()
+    do {
+        try session.configure(deviceUID: scoDevice.uid)
+        try session.start()
+    } catch {
+        logger.error("Failed to start audio session: \(error)")
+        return
+    }
+    audioSessionManager = session
+
+    // Set up STT capture
+    let capture = AudioCapture(sessionManager: session)
+    capture.onTranscription = { text in
+        device.eventStream.emit(.callerSpeech(text))
+    }
+    do {
+        try capture.start()
+    } catch {
+        logger.error("Failed to start audio capture: \(error)")
+    }
+    audioCapture = capture
+
+    // Set up TTS player if ElevenLabs key is available
+    if let elevenLabsKey = ProcessInfo.processInfo.environment["ELEVENLABS_API_KEY"] {
+        ttsPlayer = TTSPlayer(sessionManager: session, apiKey: elevenLabsKey)
+        logger.info("TTS player initialized with ElevenLabs")
+    } else {
+        logger.info("ELEVENLABS_API_KEY not set — TTS disabled")
+    }
+
+    logger.info("Audio pipeline started for device: \(scoDevice.name)")
+}
+
+func stopAudioPipeline() {
+    audioCapture?.stop()
+    audioCapture = nil
+    audioSessionManager?.stop()
+    audioSessionManager = nil
+    ttsPlayer = nil
+    logger.info("Audio pipeline stopped")
+}
+
 func handleEvent(_ event: HFPEvent) {
     switch event {
     case .incomingCall(let number):
@@ -161,11 +222,16 @@ func handleEvent(_ event: HFPEvent) {
     case .scoConnected:
         print("\n🔊 Audio connected")
         _ = audioRouter.routeToBluetoothDevice()
+        startAudioPipeline()
     case .scoDisconnected:
         print("\n🔇 Audio disconnected")
+        stopAudioPipeline()
         audioRouter.restorePreviousRouting()
+    case .callerSpeech(let text):
+        print("\n🗣️  Caller: \"\(text)\"")
     case .disconnected:
         print("\n⚠️  Device disconnected")
+        stopAudioPipeline()
         hfpDevice = nil
     default:
         break
@@ -282,7 +348,7 @@ func handleAgentMode() async {
         return
     }
 
-    let executor = ToolExecutor(device: device, audioRouter: audioRouter)
+    let executor = ToolExecutor(device: device, audioRouter: audioRouter, ttsPlayer: ttsPlayer)
     let agent = ClaudeAgent(apiKey: apiKey, toolExecutor: executor, eventStream: device.eventStream)
     claudeAgent = agent
 
@@ -326,6 +392,15 @@ func handleAgentMode() async {
 
 printBanner()
 printHelp()
+
+// Request speech recognition authorization early
+AudioCapture.requestAuthorization { authorized in
+    if authorized {
+        logger.info("Speech recognition authorized")
+    } else {
+        logger.info("Speech recognition not authorized — caller transcription will be unavailable")
+    }
+}
 
 // Run the main loop
 let mainTask = Task {

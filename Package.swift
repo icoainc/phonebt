@@ -43,6 +43,8 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("CoreAudio"),
                 .linkedFramework("AudioToolbox"),
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("Speech"),
             ]
         ),
         .target(

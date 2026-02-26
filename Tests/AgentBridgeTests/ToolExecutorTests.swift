@@ -44,6 +44,22 @@ final class ToolExecutorTests: XCTestCase {
         XCTAssertTrue((parsed["error"] as? String)?.contains("Unknown tool") ?? false)
     }
 
+    // MARK: - say_to_caller Tool
+
+    func testSayToCallerMissingTextReturnsError() {
+        let result = executeToolWithoutDevice(name: "say_to_caller", input: [:])
+        let parsed = parseJSON(result)
+        XCTAssertEqual(parsed["success"] as? Bool, false)
+        XCTAssertTrue((parsed["error"] as? String)?.contains("text") ?? false)
+    }
+
+    func testSayToCallerWithoutTTSReturnsError() {
+        let result = executeToolWithoutDevice(name: "say_to_caller", input: ["text": "Hello caller"])
+        let parsed = parseJSON(result)
+        XCTAssertEqual(parsed["success"] as? Bool, false)
+        XCTAssertTrue((parsed["error"] as? String)?.contains("TTS") ?? false)
+    }
+
     // MARK: - Missing Parameters
 
     func testDialMissingNumberReturnsError() {
@@ -156,6 +172,11 @@ final class ToolExecutorTests: XCTestCase {
             return "{\"error\":\"Not connected to any device\",\"success\":false}"
         case "get_call_status", "get_phone_status":
             return "{\"error\":\"Not connected to any device\",\"success\":false}"
+        case "say_to_caller":
+            guard let _ = input["text"] as? String else {
+                return "{\"error\":\"Missing required parameter: text\",\"success\":false}"
+            }
+            return "{\"error\":\"TTS not available \\u2014 ELEVENLABS_API_KEY not set or audio pipeline not started\",\"success\":false}"
         default:
             return "{\"error\":\"Unknown tool: \(name)\",\"success\":false}"
         }
